@@ -1,122 +1,56 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React from 'react';
+import { SensorySpaceProvider, useSensorySpace } from './context/SensorySpaceContext';
+import SensoryShieldModal from './components/SensoryShieldModal';
+import Dashboard from './components/Dashboard';
+import DeepSeaRoom from './components/DeepSeaRoom';
+import CustomizableRoom from './components/CustomizableRoom';
+import FidgetRoom from './components/FidgetRoom';
+import CameraTracker from './components/CameraTracker';
 
-function App() {
-  const [count, setCount] = useState(0)
+// Internal router component to render the active sensory space
+function MainLayout() {
+  const { currentRoom, isShieldActive } = useSensorySpace();
+
+  const renderActiveRoom = () => {
+    switch (currentRoom) {
+      case 'deep-sea':
+        return <DeepSeaRoom />;
+      case 'customizable':
+        return <CustomizableRoom />;
+      case 'fidget-space':
+        return <FidgetRoom />;
+      default:
+        return <DeepSeaRoom />;
+    }
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="relative w-full h-full flex flex-col overflow-hidden bg-gray-950">
+      {/* 1. Onboarding Permission Modal */}
+      <SensoryShieldModal />
 
-      <div className="ticks"></div>
+      {isShieldActive && (
+        <>
+          {/* 2. Floating Navbar Controls */}
+          <Dashboard />
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+          {/* 3. Immersive Room Content */}
+          <main className="w-full h-full flex-1">
+            {renderActiveRoom()}
+          </main>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+          {/* 4. Real-time Pixel Motion / Mouse Tracker */}
+          <CameraTracker />
+        </>
+      )}
+    </div>
+  );
 }
 
-export default App
+export default function App() {
+  return (
+    <SensorySpaceProvider>
+      <MainLayout />
+    </SensorySpaceProvider>
+  );
+}
