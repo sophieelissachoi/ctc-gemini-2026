@@ -1,3 +1,4 @@
+import React from 'react';
 import { SensorySpaceProvider, useSensorySpace } from './context/SensorySpaceContext';
 import SensoryShieldModal from './components/SensoryShieldModal';
 import Dashboard from './components/Dashboard';

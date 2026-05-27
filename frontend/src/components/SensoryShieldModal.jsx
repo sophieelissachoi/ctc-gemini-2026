@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useSensorySpace } from '../context/SensorySpaceContext';
 import { Shield, Eye, Mic, ShieldAlert, Cpu } from 'lucide-react';
 
