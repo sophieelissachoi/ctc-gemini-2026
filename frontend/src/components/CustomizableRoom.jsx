@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSensorySpace } from '../context/SensorySpaceContext';
 import { Sliders, Volume2, Music, Save, FolderOpen, AlertCircle, Check } from 'lucide-react';
 
@@ -109,7 +109,9 @@ export default function CustomizableRoom() {
   };
 
   useEffect(() => {
-    fetchPresets();
+    setTimeout(() => {
+      fetchPresets();
+    }, 0);
   }, []);
 
   const handleSavePreset = async (e) => {

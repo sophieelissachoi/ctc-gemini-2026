@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 const SensorySpaceContext = createContext();
 
@@ -39,6 +40,7 @@ export const SensorySpaceProvider = ({ children }) => {
   const [isMicActive, setIsMicActive] = useState(false);
   const [videoElement, setVideoElement] = useState(null);
   const [micVolume, setMicVolume] = useState(0); // for visualizer feedback
+  const [webcamStream, setWebcamStream] = useState(null);
 
   const webcamStreamRef = useRef(null);
   const micStreamRef = useRef(null);
@@ -64,6 +66,7 @@ export const SensorySpaceProvider = ({ children }) => {
   const brushNoiseSourceRef = useRef(null);
   const brushFilterRef = useRef(null);
   const brushGainRef = useRef(null);
+  const brushPannerRef = useRef(null);
 
   // Fidget Wax nodes
   const waxIntervalRef = useRef(null);
@@ -72,13 +75,7 @@ export const SensorySpaceProvider = ({ children }) => {
   const sequencerIntervalRef = useRef(null);
   const seqBeatCountRef = useRef(0);
 
-  // Clean up all audio on unmount
-  useEffect(() => {
-    return () => {
-      stopAllAudio();
-      stopStreams();
-    };
-  }, []);
+
 
   // Monitor settings changes and update real-time audio nodes
   useEffect(() => {
@@ -97,6 +94,7 @@ export const SensorySpaceProvider = ({ children }) => {
     if (webcamStreamRef.current) {
       webcamStreamRef.current.getTracks().forEach(t => t.stop());
       webcamStreamRef.current = null;
+      setWebcamStream(null);
     }
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach(t => t.stop());
@@ -112,18 +110,26 @@ export const SensorySpaceProvider = ({ children }) => {
     if (sequencerIntervalRef.current) clearInterval(sequencerIntervalRef.current);
 
     if (ambientNoiseSourceRef.current) {
-      try { ambientNoiseSourceRef.current.stop(); } catch(e){}
+      try { ambientNoiseSourceRef.current.stop(); } catch { /* already stopped */ }
       ambientNoiseSourceRef.current = null;
     }
     if (ambientLfoRef.current) {
-      try { ambientLfoRef.current.stop(); } catch(e){}
+      try { ambientLfoRef.current.stop(); } catch { /* already stopped */ }
       ambientLfoRef.current = null;
     }
     if (brushNoiseSourceRef.current) {
-      try { brushNoiseSourceRef.current.stop(); } catch(e){}
+      try { brushNoiseSourceRef.current.stop(); } catch { /* already stopped */ }
       brushNoiseSourceRef.current = null;
     }
   };
+
+  // Clean up all audio on unmount
+  useEffect(() => {
+    return () => {
+      stopAllAudio();
+      stopStreams();
+    };
+  }, []);
 
   // Helper: Create a White Noise AudioBuffer
   const createNoiseBuffer = () => {
@@ -160,6 +166,7 @@ export const SensorySpaceProvider = ({ children }) => {
           audio: false
         });
         webcamStreamRef.current = videoStream;
+        setWebcamStream(videoStream);
         setIsWebcamActive(true);
       } catch (camErr) {
         console.warn('Camera permission denied or unavailable:', camErr);
@@ -230,7 +237,7 @@ export const SensorySpaceProvider = ({ children }) => {
   // ----------------------------------------------------
 
   // Synthesize a brief pop sound (Deep Sea room / fidget pops)
-  const playPop = () => {
+  const playPop = (freq = 150) => {
     if (!audioCtxRef.current || !masterGainRef.current) return;
     const ctx = audioCtxRef.current;
     
@@ -244,11 +251,11 @@ export const SensorySpaceProvider = ({ children }) => {
     // Pop characteristics: quick rising pitch, extremely fast decay
     osc.type = 'sine';
     const now = ctx.currentTime;
-    osc.frequency.setValueAtTime(150, now);
-    osc.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 2.5, now + 0.05);
     
     gainNode.gain.setValueAtTime(0.0, now);
-    gainNode.gain.linearRampToValueAtTime(0.15, now + 0.005);
+    gainNode.gain.linearRampToValueAtTime(0.12, now + 0.005);
     gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
     
     osc.start(now);
@@ -299,7 +306,7 @@ export const SensorySpaceProvider = ({ children }) => {
     clickNoise.stop(now + 0.05);
   };
 
-  // Fidget Brush Sound: swept highpass noise
+  // Fidget Brush Sound: swept highpass noise with stereo panner
   const startBrush = () => {
     if (!audioCtxRef.current || !masterGainRef.current) return;
     const ctx = audioCtxRef.current;
@@ -319,9 +326,19 @@ export const SensorySpaceProvider = ({ children }) => {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.001, now); // start silent
 
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(masterGainRef.current);
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (panner) {
+      panner.pan.setValueAtTime(0, now);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(panner);
+      panner.connect(masterGainRef.current);
+      brushPannerRef.current = panner;
+    } else {
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGainRef.current);
+    }
 
     noise.start(now);
 
@@ -330,27 +347,170 @@ export const SensorySpaceProvider = ({ children }) => {
     brushGainRef.current = gain;
   };
 
-  const updateBrush = (speed) => {
+  const updateBrush = (speed, pan = 0) => {
     if (!audioCtxRef.current || !brushFilterRef.current || !brushGainRef.current) return;
     const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
     
     // Normalize speed (0 to 1) and map to sweeping filter cutoff and gain
-    const gainVal = Math.min(speed * 0.12, 0.2); // max volume
-    const filterFreq = 1000 + (speed * 4000); // 1000Hz to 5000Hz
+    const gainVal = Math.min(speed * 0.18, 0.25); // max volume
+    const filterFreq = 1200 + (speed * 4200); // 1200Hz to 5400Hz
 
-    brushGainRef.current.gain.setTargetAtTime(gainVal, ctx.currentTime, 0.05);
-    brushFilterRef.current.frequency.setTargetAtTime(filterFreq, ctx.currentTime, 0.08);
+    brushGainRef.current.gain.setTargetAtTime(gainVal, now, 0.05);
+    brushFilterRef.current.frequency.setTargetAtTime(filterFreq, now, 0.08);
+
+    if (brushPannerRef.current) {
+      brushPannerRef.current.pan.setTargetAtTime(pan, now, 0.05);
+    }
   };
 
   const stopBrush = () => {
     if (brushNoiseSourceRef.current) {
       try {
         brushNoiseSourceRef.current.stop();
-      } catch(e){}
+      } catch { /* already stopped */ }
       brushNoiseSourceRef.current = null;
       brushFilterRef.current = null;
       brushGainRef.current = null;
+      brushPannerRef.current = null;
     }
+  };
+
+  // High-quality Tapping Chime synthesizer (FM/Additive hybrid)
+  const playNiceChime = (freq, type = 'chime') => {
+    if (!audioCtxRef.current || !masterGainRef.current) return;
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
+    gainNode.connect(masterGainRef.current);
+
+    if (type === 'chime') {
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(freq, now);
+
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(freq * 3.01, now); // slightly detuned harmonic for metallic ring
+
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(0.08, now + 0.004);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 0.7);
+      osc2.stop(now + 0.7);
+    } else if (type === 'kalimba') {
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(freq, now);
+
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(freq * 2.0, now);
+
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(0.12, now + 0.003);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+      // Add a tiny pluck noise burst at start
+      const click = ctx.createBufferSource();
+      click.buffer = createNoiseBuffer();
+      const clickFilter = ctx.createBiquadFilter();
+      clickFilter.type = 'bandpass';
+      clickFilter.frequency.setValueAtTime(3200, now);
+      clickFilter.Q.setValueAtTime(5, now);
+      const clickGain = ctx.createGain();
+      clickGain.gain.setValueAtTime(0.02, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.008);
+
+      click.connect(clickFilter);
+      clickFilter.connect(clickGain);
+      clickGain.connect(masterGainRef.current);
+
+      click.start(now);
+      click.stop(now + 0.02);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 0.4);
+      osc2.stop(now + 0.4);
+    } else if (type === 'woodblock') {
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(freq * 1.4, now);
+      osc1.frequency.exponentialRampToValueAtTime(freq * 0.75, now + 0.035);
+
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(0.16, now + 0.002);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
+
+      osc1.start(now);
+      osc1.stop(now + 0.1);
+    }
+  };
+
+  // Wax Cracking crunchy snaps sound effect
+  const playCrackingSound = (intensity = 0.5) => {
+    if (!audioCtxRef.current || !masterGainRef.current) return;
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+
+    const snaps = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < snaps; i++) {
+      const snapTime = now + i * (0.012 + Math.random() * 0.025);
+      
+      const noise = ctx.createBufferSource();
+      noise.buffer = createNoiseBuffer();
+      
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(1800 + Math.random() * 3800, snapTime);
+      filter.Q.setValueAtTime(5, snapTime);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, snapTime);
+      gain.gain.linearRampToValueAtTime(0.05 * intensity, snapTime + 0.001);
+      gain.gain.exponentialRampToValueAtTime(0.0001, snapTime + 0.005 + Math.random() * 0.008);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGainRef.current);
+
+      noise.start(snapTime);
+      noise.stop(snapTime + 0.03);
+    }
+  };
+
+  // Squeaking/Squelching Squishy sound effect
+  const playSquishSound = (intensity = 0.5) => {
+    if (!audioCtxRef.current || !masterGainRef.current) return;
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+
+    // Pitch sweep lowpass noise
+    const noise = ctx.createBufferSource();
+    noise.buffer = createNoiseBuffer();
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(550, now);
+    filter.frequency.exponentialRampToValueAtTime(140, now + 0.15);
+    filter.Q.setValueAtTime(1.2, now);
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(0.04 * intensity, now + 0.025);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+
+    noise.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(masterGainRef.current);
+
+    noise.start(now);
+    noise.stop(now + 0.2);
   };
 
   // Wax Melting: granular snaps/crackles
@@ -402,11 +562,11 @@ export const SensorySpaceProvider = ({ children }) => {
     
     // Stop active environmental nodes
     if (ambientNoiseSourceRef.current) {
-      try { ambientNoiseSourceRef.current.stop(); } catch(e){}
+      try { ambientNoiseSourceRef.current.stop(); } catch { /* already stopped */ }
       ambientNoiseSourceRef.current = null;
     }
     if (ambientLfoRef.current) {
-      try { ambientLfoRef.current.stop(); } catch(e){}
+      try { ambientLfoRef.current.stop(); } catch { /* already stopped */ }
       ambientLfoRef.current = null;
     }
     if (nightIntervalRef.current) {
@@ -472,7 +632,7 @@ export const SensorySpaceProvider = ({ children }) => {
         }, 100);
         break;
 
-      case 'ocean':
+      case 'ocean': {
         // Noise with an LFO modulating the gain slowly (4-6s swell cycle)
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(350, now);
@@ -494,8 +654,9 @@ export const SensorySpaceProvider = ({ children }) => {
         ambientLfoRef.current = oceanLfo;
         ambientLfoGainRef.current = oceanLfoGain;
         break;
+      }
 
-      case 'wind':
+      case 'wind': {
         // Deep brown/pink noise with sweeping bandpass filter
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(400, now);
@@ -519,8 +680,9 @@ export const SensorySpaceProvider = ({ children }) => {
         ambientLfoRef.current = windLfo;
         ambientLfoGainRef.current = windLfoGain;
         break;
+      }
 
-      case 'night':
+      case 'night': {
         // Crickets chirping procedurally, background low hum
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(120, now);
@@ -561,6 +723,7 @@ export const SensorySpaceProvider = ({ children }) => {
           }
         }, 1200);
         break;
+      }
 
       default:
         break;
@@ -641,7 +804,7 @@ export const SensorySpaceProvider = ({ children }) => {
 
       // 1. Play Soft Pad Chord on step 0
       if (beatInMeasure === 0) {
-        currentChord.forEach((freq, idx) => {
+        currentChord.forEach((freq) => {
           const osc = ctx.createOscillator();
           const gainNode = ctx.createGain();
           const pFilter = ctx.createBiquadFilter();
@@ -867,7 +1030,7 @@ export const SensorySpaceProvider = ({ children }) => {
       micVolume,
       videoElement,
       setVideoElement,
-      webcamStream: webcamStreamRef.current,
+      webcamStream,
       
       // Action methods
       activateSensoryShield,
@@ -882,7 +1045,10 @@ export const SensorySpaceProvider = ({ children }) => {
       startWaxMelting,
       stopWaxMelting,
       playEnvironmentalEffect,
-      playLofiGenre
+      playLofiGenre,
+      playNiceChime,
+      playCrackingSound,
+      playSquishSound
     }}>
       {children}
     </SensorySpaceContext.Provider>

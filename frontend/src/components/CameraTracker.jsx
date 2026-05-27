@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSensorySpace } from '../context/SensorySpaceContext';
 import { Camera, MousePointer, HelpCircle } from 'lucide-react';
 
